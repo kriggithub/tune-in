@@ -247,6 +247,9 @@ const RULES = `<details><summary>How to play</summary><ol>
   <li>Online: one person taps <b>Play online</b> and shares the code or link. Everyone plays on their own phone; whoever taps "I'm the psychic" gets the secret screen.</li>
 </ol></details>`;
 
+const goLabel = () => !ROOM ? 'Hide the target, pass the phone' : S.clue.trim() ? 'Send the clue' : "I've said it, let them guess";
+// online with no typed clue: tell the guessers it was spoken
+const clueLine = () => S.clue ? `<p class="clue">“${esc(S.clue)}”</p>` : ROOM ? `<p class="center muted">The clue was said out loud.</p>` : '';
 const watching = () => ROOM && S.psychic === ME; // online psychic waiting on the others
 
 const views = {
@@ -325,15 +328,15 @@ const views = {
       ${dial({ target: true, needle: false })}${cardHTML(true)}
       <p class="muted cardnote" style="font-size:13px;margin-top:-8px">${removed ? `Removed “${esc(removed.card.join(' ↔ '))}”. <button class="link" data-act="undo-remove">Undo</button>`
         : cardNote ? esc(cardNote) : `Tap the card to rewrite it, or ✕ to remove it from the ${esc(S.deckName)} deck.`}</p>
-      <div><label for="clue">${ROOM ? 'Your clue' : 'Your clue (optional: you can just say it out loud)'}</label>
+      <div><label for="clue">Your clue (optional: you can just say it out loud${ROOM ? ', e.g. on a call' : ''})</label>
         <input type="text" id="clue" maxlength="60" value="${esc(S.clue)}" autocomplete="off"></div>
       <button class="ghost" data-act="new-card">Different card</button>
       <div class="grow"></div>
-      <button data-act="to-guess">${ROOM ? 'Send the clue' : 'Hide the target, pass the phone'}</button>`;
+      <button data-act="to-guess" id="go">${goLabel()}</button>`;
   },
   guess() {
     const who = S.mode === 'teams' ? teamName(S.active) : 'Everyone';
-    const clue = S.clue ? `<p class="clue">“${esc(S.clue)}”</p>` : '';
+    const clue = clueLine();
     if (watching()) return `${topBar()}<p class="center muted">They're turning the dial…</p>${clue}
       ${dial({ target: true })}${cardHTML()}<div class="grow"></div>`;
     return `${topBar()}<p class="center">${who}: talk it over and set the dial.</p>${clue}
@@ -341,7 +344,7 @@ const views = {
       ${cardHTML()}<div class="grow"></div><button data-act="lock">Lock it in</button>`;
   },
   call() {
-    const clue = S.clue ? `<p class="clue">“${esc(S.clue)}”</p>` : '';
+    const clue = clueLine();
     if (watching()) return `${topBar()}<p class="center muted">${teamName(1 - S.active)} is calling left or right…</p>${clue}
       ${dial({ target: true })}${cardHTML()}<div class="grow"></div>`;
     return `${topBar()}<p class="center">${teamName(1 - S.active)}: is the target <b>left</b> or <b>right</b> of the needle?</p>${clue}
@@ -486,7 +489,7 @@ app.addEventListener('click', e => {
   else if (b.dataset.act) actions[b.dataset.act]();
 });
 app.addEventListener('input', e => {
-  if (e.target.id === 'clue') { S.clue = e.target.value; if (!ROOM) save(); } // online: sent with "Send the clue"
+  if (e.target.id === 'clue') { S.clue = e.target.value; if (!ROOM) save(); app.querySelector('#go').textContent = goLabel(); } // online: sent with the button
   if (e.target.classList.contains('cardin')) {
     S.draft = [app.querySelector('#el').textContent, app.querySelector('#er').textContent];
     if (ROOM && Date.now() - lastSent > 150) { lastSent = Date.now(); send(); } // others watch it change
