@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Tune In</title>
+<meta name="description" content="A pass-the-phone party game about reading each other's minds.">
+<meta name="theme-color" content="#14161c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tune In">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #14161c;
+    --panel: #1e212a;
+    --line: #2e323e;
+    --text: #f1ece2;
+    --muted: #9a978f;
+    --amber: #ffb547;
+    --amber-dim: #6b4d1f;
+    --b2: #2f6f5e;
+    --b3: #3fa585;
+    --b4: #7ce3b6;
+    --needle: #ff6b57;
+    --t0: #8fb8ff;
+    --t1: #ff9ec7;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 17px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+  #app { max-width: 480px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 16px); gap: 16px; }
+  h1 { font-size: 44px; letter-spacing: -1px; margin: 24px 0 0; color: var(--amber); }
+  h2 { font-size: 26px; margin: 0; line-height: 1.2; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .grow { flex: 1; }
+  .center { text-align: center; }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  button { font: inherit; font-weight: 650; border: 0; border-radius: 14px; padding: 16px; cursor: pointer;
+    background: var(--amber); color: #1a1408; min-height: 54px; }
+  button.ghost { background: var(--panel); color: var(--text); border: 1px solid var(--line); }
+  button.small { min-height: 0; padding: 8px 12px; font-size: 15px; }
+  button:active { transform: scale(.98); }
+  input[type=text] { font: inherit; width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text); user-select: text; -webkit-user-select: text; }
+  label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+  .seg { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 4px; }
+  .seg button { flex: 1; background: none; color: var(--muted); min-height: 44px; padding: 10px; }
+  .seg button[aria-pressed=true] { background: var(--amber); color: #1a1408; }
+  .top { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+  .score { flex: 1; display: flex; gap: 8px; }
+  .chip { flex: 1; padding: 8px 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line);
+    display: flex; justify-content: space-between; gap: 6px; white-space: nowrap; overflow: hidden; }
+  .chip b { font-variant-numeric: tabular-nums; }
+  .chip.on { border-color: currentColor; }
+  .chip span { overflow: hidden; text-overflow: ellipsis; }
+  .t0 { color: var(--t0); } .t1 { color: var(--t1); }
+  .card { display: flex; gap: 8px; }
+  .card div { flex: 1; padding: 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line);
+    font-weight: 650; font-size: 18px; line-height: 1.2; }
+  .card div:last-child { text-align: right; }
+  .card small { display: block; color: var(--muted); font-weight: 400; font-size: 13px; }
+  .clue { font-size: 30px; font-weight: 750; text-align: center; color: var(--amber); word-break: break-word; }
+  svg.dial { width: 100%; display: block; touch-action: none; }
+  .target { transition: opacity .6s ease .15s; }
+  input[type=range] { width: 100%; accent-color: var(--needle); height: 32px; }
+  .big { font-size: 56px; font-weight: 800; text-align: center; line-height: 1; }
+  details { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  summary { font-weight: 650; cursor: pointer; }
+  details ol { padding-left: 20px; margin: 10px 0 0; color: var(--muted); }
+  details li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script type="module" src="app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
