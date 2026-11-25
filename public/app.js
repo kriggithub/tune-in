@@ -1,5 +1,5 @@
 import { CARDS } from './cards.js';
-import { BAND, WIN, newGame, startTurn, drawCard, resolve } from './logic.js';
+import { BAND, WIN, newGame, newRound, startTurn, drawCard, resolve } from './logic.js';
 
 const app = document.getElementById('app');
 const store = {
@@ -26,12 +26,16 @@ const key = c => c.join('|');
 let library = store.get('tunein.library', []);   // [{ id, name, count }]
 let deckId = store.get('tunein.deck', 'classic'); // the deck new games use
 let editing = null;                               // deck open in the editor
-const api = (path = '', method = 'GET', body) =>
-  fetch('/api/decks' + path, { method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body) })
+const keys = () => store.get('tunein.keys', {}); // passwords of locked decks this phone has opened
+const setKey = (id, k) => store.set('tunein.keys', { ...keys(), [id]: k });
+// sends the deck's password if this phone knows it (for a copy, the source deck's)
+const api = (path = '', method = 'GET', body, keyId = path.slice(1) || body?.from) =>
+  fetch('/api/decks' + path, { method, body: body && JSON.stringify(body),
+    headers: { 'content-type': 'application/json', 'x-deck-key': encodeURIComponent(keys()[keyId] || '') } })
     .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))));
 const deckLabel = () => { const d = library.find(x => x.id === deckId); return d ? `Deck: ${d.name} · ${d.count} cards` : 'Choose a deck'; };
 const deckRows = () => library.length ? library.map(d => `<div class="item ${d.id === deckId ? 'sel' : ''}">
-    <button class="pick" data-pick="${esc(d.id)}">${d.id === deckId ? '✓ ' : ''}${esc(d.name)} <span class="muted">· ${d.count}</span></button>
+    <button class="pick" data-pick="${esc(d.id)}">${d.id === deckId ? '✓ ' : ''}${d.locked ? '🔒 ' : ''}${esc(d.name)} <span class="muted">· ${d.count}</span></button>
     <button class="ghost small" data-edit="${esc(d.id)}">Edit</button></div>`).join('')
   : `<p class="muted">Can't reach the deck library. Check your connection.</p>`;
 
@@ -42,10 +46,19 @@ async function refreshLibrary() {
   const l = app.querySelector('.decklist'); if (l) l.innerHTML = deckRows();
 }
 
+// null = locked and no right password given
 async function loadDeck(id) {
   const cache = store.get('tunein.deckcache', {});
-  try { const d = await api('/' + id); cache[id] = d; store.set('tunein.deckcache', cache); return d; }
-  catch { return cache[id] || { id: null, name: 'Built-in', cards: CARDS }; } // offline and never loaded
+  for (let tries = 0; tries < 3; tries++) {
+    try { const d = await api('/' + id); cache[id] = d; store.set('tunein.deckcache', cache); return d; }
+    catch (e) {
+      if (e.message !== '401') return cache[id] || { id: null, name: 'Built-in', cards: CARDS }; // offline and never loaded
+      const k = prompt(tries ? 'Wrong password (or too many tries: wait an hour). Try again:' : 'This deck has a password:');
+      if (!k) return null;
+      setKey(id, k);
+    }
+  }
+  return null;
 }
 
 // deck edits queue on this phone and go to the server in order (they wait if you're offline)
@@ -65,7 +78,7 @@ const flushOps = () => (flushing ||= sendOps().finally(() => { flushing = null; 
 async function sendOps() {
   for (let ops = store.get('tunein.ops', []); ops.length; ops = store.get('tunein.ops', [])) {
     try { await api('/' + ops[0][0], 'POST', ops[0][1]); }
-    catch (e) { if (!['404', '400'].includes(e.message)) break; } // offline: retry later; bad/deleted deck: drop it
+    catch (e) { if (!['404', '400', '401'].includes(e.message)) break; } // offline: retry later; bad/deleted/locked deck: drop it
     store.set('tunein.ops', store.get('tunein.ops', []).slice(1));
   }
 }
@@ -81,6 +94,7 @@ const go = phase => { S.phase = phase; save(); render(); };
 
 // ---- online rooms ----
 let ws = null, pending = null, skipNext = false, lastNeedleSend = 0, retry = null;
+let roomKey = '', hosting = false; // a room playing a locked deck needs that deck's password
 const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const newCode = () => Array.from({ length: 4 }, () => ALPHA[Math.floor(Math.random() * ALPHA.length)]).join('');
 const roomLink = () => `${location.origin}${location.pathname}?room=${ROOM}`;
@@ -89,12 +103,14 @@ function connect() {
   clearTimeout(retry);
   if (!ROOM || (ws && ws.readyState <= 1)) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/room/${ROOM}`);
+  ws = new WebSocket(`${proto}://${location.host}/room/${ROOM}?key=${encodeURIComponent(roomKey)}${hosting ? '&new=1' : ''}`);
   ws.onopen = () => {
+    hosting = false;
     if (pending) { ws.send(pending); pending = null; skipNext = true; } // our change wins over the stored copy
     renderStatus();
   };
   ws.onmessage = e => {
+    if (e.data === '"locked"') return askRoomKey();
     if (skipNext) { skipNext = false; return; }
     receive(e.data);
   };
@@ -128,20 +144,32 @@ function receive(data) {
     if (!S) { flash = `No game found with code ${ROOM}.`; leaveRoom(); }
     return;
   }
-  const first = !S, before = S && S.phase;
+  const before = S && S.phase;
   S = n;
+  if (roomKey && S.deckId && !keys()[S.deckId]) setKey(S.deckId, roomKey); // the room password is the deck's, so edits work
   if (deckOpen) return; // the game screen redraws when the panel closes
   // only the needle moved: update it in place instead of redrawing the screen
   if (before === 'guess' && S.phase === 'guess' && app.querySelector('#needle')) return moveNeedle(S.needle);
   render();
 }
 
-function joinRoom(code) {
+function askRoomKey() {
+  const old = ws; ws = null; old.onclose = null; old.close();
+  const k = prompt(S ? 'Password for this game:' : `Game ${ROOM} plays a deck with a password. Password (wrong guesses lock you out for an hour):`);
+  if (!k) return leaveRoom();
+  roomKey = k; store.set('tunein.roomkey', { code: ROOM, key: k }); connect();
+}
+
+function joinRoom(code, key = '') {
+  const saved = store.get('tunein.roomkey', null);
+  roomKey = key || (saved?.code === code ? saved.key : '');
+  store.set('tunein.roomkey', roomKey ? { code, key: roomKey } : null);
   ROOM = code; S = null; store.set('tunein.room', ROOM); connect(); render();
 }
 function leaveRoom() {
-  const old = ws; ROOM = null; ws = null; S = null; ui = 'menu'; deckOpen = false;
-  store.set('tunein.room', null);
+  const old = ws; ROOM = null; ws = null; S = null; ui = 'menu'; deckOpen = false; roomKey = '';
+  store.set('tunein.room', null); store.set('tunein.roomkey', null);
+  if (old) old.onclose = null;
   if (old) old.close();
   render();
 }
@@ -247,6 +275,8 @@ const RULES = `<details><summary>How to play</summary><ol>
   <li>Online: one person taps <b>Play online</b> and shares the code or link. Everyone plays on their own phone; whoever taps "I'm the psychic" gets the secret screen.</li>
 </ol></details>`;
 
+const cardNoteHTML = () => `<p class="muted cardnote" style="font-size:13px;margin-top:-8px">${removed ? `Removed “${esc(removed.card.join(' ↔ '))}”. <button class="link" data-act="undo-remove">Undo</button>`
+  : cardNote ? esc(cardNote) : `Tap the card to rewrite it, ✕ to remove it, or ＋ New card to write your own. Changes save to the ${esc(S.deckName)} deck.`}</p>`;
 const goLabel = () => !ROOM ? 'Hide the target, pass the phone' : S.clue.trim() ? 'Send the clue' : "I've said it, let them guess";
 // online with no typed clue: tell the guessers it was spoken
 const clueLine = () => S.clue ? `<p class="clue">“${esc(S.clue)}”</p>` : ROOM ? `<p class="center muted">The clue was said out loud.</p>` : '';
@@ -295,6 +325,8 @@ const views = {
       <p class="muted" style="font-size:14px">${d.cards.length} cards, newest first. Changes save for everyone.</p>
       <div class="list">${order.map(i => `<div class="item"><span>${esc(d.cards[i][0])} <span class="muted">↔</span> ${esc(d.cards[i][1])}</span>
         <button class="ghost small" data-del="${i}" aria-label="Delete card">✕</button></div>`).join('')}</div>
+      <button class="ghost" data-act="lock-deck">🔒 ${d.locked ? 'Change the password' : 'Add a password'}</button>
+      ${d.locked ? `<button class="ghost" data-act="unlock-deck">Remove the password</button>` : ''}
       <button class="ghost danger" data-act="delete-deck">Delete this deck</button>`;
   },
   deck() {
@@ -303,34 +335,33 @@ const views = {
       <div class="row"><input type="text" id="gl" placeholder="Left end" maxlength="40"><input type="text" id="gr" placeholder="Right end" maxlength="40"></div>
       <button class="ghost" data-act="deck-add">Add to this game</button>
       ${deckNote ? `<p class="note">${esc(deckNote)}</p>` : ''}
-      <p class="muted" style="font-size:14px">${S.cards.filter(c => !skip.has(key(c))).length} of ${S.cards.length} in play. ✕ removes a card, ↺ brings it back. New cards come up next. Changes save to the “${esc(S.deckName)}” deck.</p>
+      <p class="muted" style="font-size:14px">${S.cards.filter(c => !skip.has(key(c))).length} of ${S.cards.length} in play. ✕ removes a card, ↺ brings it back. New cards come up next round. Changes save to the “${esc(S.deckName)}” deck.</p>
       <div class="list">${order.map(i => { const c = S.cards[i], off = skip.has(key(c)); return `<div class="item ${off ? 'off' : ''}">
         <span>${esc(c[0])} <span class="muted">↔</span> ${esc(c[1])}</span>
         <button class="ghost small" data-g${off ? 'unskip' : 'skip'}="${i}" aria-label="${off ? 'Bring back' : 'Remove'} card">${off ? '↺' : '✕'}</button></div>`; }).join('')}</div>`;
   },
+  // the card is chosen here, in the open; the target only exists once someone taps "I'm the psychic"
   handoff() {
+    if (!S.cards[S.card]) drawCard(S); // games saved before cards were drawn up front
+    const card = `${cardHTML(true)}${cardNoteHTML()}
+      <div class="row"><button class="ghost" data-act="new-card">Different card</button><button class="ghost" data-act="write-card">＋ New card</button></div>`;
     if (ROOM) {
       const who = S.mode === 'teams' ? `${teamName(S.active)}: who's the psychic?` : `Who's the psychic this round?`;
-      return `${topBar()}<div class="grow"></div>
-        <div class="stack center"><h2>${who}</h2><p class="muted">Room <b>${ROOM}</b>. Others can join with the code or the link.</p>
-        <button class="ghost" data-act="share">Share invite link</button></div>
-        <div class="grow"></div><button data-act="reveal-target">I'm the psychic</button>`;
+      return `${topBar()}<h2 class="center">${who}</h2><p class="muted center">Pick this round's card together first.</p>${card}
+        <div class="grow"></div><p class="muted center" style="font-size:14px">Room <b>${ROOM}</b> · <button class="link" data-act="share">Share invite link</button></p>
+        <button data-act="reveal-target">I'm the psychic</button>`;
     }
     const who = S.mode === 'teams' ? `a psychic on ${teamName(S.active)}` : 'the next psychic';
-    return `${topBar()}<div class="grow"></div>
-      <div class="stack center"><h2>Pass the phone to ${who}.</h2><p class="muted">Everyone else, look away.</p></div>
-      <div class="grow"></div><button data-act="reveal-target">I'm the psychic, show me</button>`;
+    return `${topBar()}<h2 class="center">Pass the phone to ${who}.</h2><p class="muted center">Pick this round's card first. Everyone else looks away once the psychic taps below.</p>
+      ${card}<div class="grow"></div><button data-act="reveal-target">I'm the psychic, show me</button>`;
   },
   psychic() {
     if (ROOM && S.psychic !== ME) return `${topBar()}<div class="grow"></div>
       <div class="stack center"><h2>The psychic is thinking of a clue…</h2></div>${dial({ needle: false })}${cardHTML()}<div class="grow"></div>`;
     return `${topBar()}<p class="muted center">Only you can see this. Think of a clue that sits on the target.</p>
-      ${dial({ target: true, needle: false })}${cardHTML(true)}
-      <p class="muted cardnote" style="font-size:13px;margin-top:-8px">${removed ? `Removed “${esc(removed.card.join(' ↔ '))}”. <button class="link" data-act="undo-remove">Undo</button>`
-        : cardNote ? esc(cardNote) : `Tap the card to rewrite it, ✕ to remove it, or ＋ New card to write your own. Changes save to the ${esc(S.deckName)} deck.`}</p>
+      ${dial({ target: true, needle: false })}${cardHTML()}
       <div><label for="clue">Your clue (optional: you can just say it out loud${ROOM ? ', e.g. on a call' : ''})</label>
         <input type="text" id="clue" maxlength="60" value="${esc(S.clue)}" autocomplete="off"></div>
-      <div class="row"><button class="ghost" data-act="new-card">Different card</button><button class="ghost" data-act="write-card">＋ New card</button></div>
       <div class="grow"></div>
       <button data-act="to-guess" id="go">${goLabel()}</button>`;
   },
@@ -382,9 +413,12 @@ const views = {
   },
 };
 
+let lastLocked = false; // the deck gameFromDeck just loaded has a password
 async function gameFromDeck(mode, teamNames, id) {
   flash = '';
   const d = await loadDeck(id);
+  if (!d) return null;
+  lastLocked = !!d.locked;
   if (!d.cards.length) { flash = `The ${d.name} deck has no cards yet. Add some first.`; ui = 'menu'; S = null; render(); return null; }
   const g = newGame(mode, teamNames, d.cards.slice());
   g.deckId = d.id; g.deckName = d.name;
@@ -397,7 +431,11 @@ function names() {
 
 const actions = {
   async start() { const g = await gameFromDeck(setupMode, names(), deckId); if (g) { S = g; save(); render(); } },
-  async host() { const g = await gameFromDeck(setupMode, names(), deckId); if (g) { joinRoom(newCode()); S = g; save(); render(); } },
+  async host() {
+    const g = await gameFromDeck(setupMode, names(), deckId);
+    if (!g) return;
+    hosting = true; joinRoom(newCode(), g.deckId && lastLocked ? keys()[g.deckId] : ''); S = g; save(); render();
+  },
   join() { flash = ''; ui = 'join'; render(); app.querySelector('#code').focus(); },
   'do-join'() {
     const code = app.querySelector('#code').value.trim().toUpperCase();
@@ -416,6 +454,17 @@ const actions = {
     if (!c[0] || !c[1]) return;
     if (!editing.cards.some(x => key(x) === key(c))) { editing.cards.push(c); deckOp(editing.id, { op: 'add', card: c }); }
     render(); app.querySelector('#cl').focus();
+  },
+  async 'lock-deck'() {
+    const pin = prompt('Password for this deck. Anyone who plays or edits it will need it:');
+    if (!pin) return;
+    try { editing = await api('/' + editing.id, 'POST', { op: 'lock', pin }); } catch { return alert("Couldn't set the password. Are you online?"); }
+    setKey(editing.id, pin); render(); refreshLibrary();
+  },
+  async 'unlock-deck'() {
+    if (!confirm('Remove the password? Anyone with the link will be able to see these cards.')) return;
+    try { editing = await api('/' + editing.id, 'POST', { op: 'unlock' }); } catch { return alert("Couldn't remove it. Are you online?"); }
+    render(); refreshLibrary();
   },
   async 'delete-deck'() {
     if (!confirm(`Delete the “${editing.name}” deck for everyone?`)) return;
@@ -459,7 +508,10 @@ const actions = {
   drop() { const c = S.cards[S.card]; removeCard(c); S.skip.push(key(c)); save(); render(); },
   'to-guess'() { go('guess'); },
   lock() { S.mode === 'teams' ? go('call') : (resolve(S), save(), render()); },
-  next() { go(S.winner !== null ? 'end' : 'handoff'); },
+  next() {
+    if (S.winner !== null) return go('end');
+    removed = null; cardNote = ''; newRound(S); save(); render();
+  },
   async again() { const g = await gameFromDeck(S.mode, S.teams ? S.teams.map(t => t.name) : [], S.deckId || deckId); if (g) { S = g; save(); render(); } },
   menu() { ui = 'menu'; S = null; deckOpen = false; store.set('tunein.v1', null); render(); },
   quit() {
@@ -468,7 +520,7 @@ const actions = {
   },
 };
 
-app.addEventListener('click', e => {
+app.addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.mode) { setupMode = b.dataset.mode; render(); }
@@ -477,10 +529,14 @@ app.addEventListener('click', e => {
     const [c] = editing.cards.splice(+b.dataset.del, 1); deckOp(editing.id, { op: 'remove', card: c });
     const y = window.scrollY; render(); window.scrollTo(0, y); // stay where you were in the long list
   }
-  else if (b.dataset.pick) { deckId = b.dataset.pick; store.set('tunein.deck', deckId); app.querySelector('.decklist').innerHTML = deckRows(); }
+  else if (b.dataset.pick) {
+    const id = b.dataset.pick;
+    if (library.find(d => d.id === id)?.locked && !(await loadDeck(id))) return; // ask for the password up front
+    deckId = id; store.set('tunein.deck', deckId); app.querySelector('.decklist').innerHTML = deckRows();
+  }
   else if (b.dataset.edit) {
     ui = 'deckedit'; editing = null; render();
-    loadDeck(b.dataset.edit).then(d => { if (ui === 'deckedit') { editing = d.id ? d : null; editing ? render() : actions.decks(); } });
+    loadDeck(b.dataset.edit).then(d => { if (ui === 'deckedit') { editing = d?.id ? d : null; editing ? render() : actions.decks(); } });
   }
   else if (b.dataset.gskip || b.dataset.gunskip) {
     const i = +(b.dataset.gskip ?? b.dataset.gunskip), c = S.cards[i], k = key(c);

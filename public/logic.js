@@ -28,6 +28,7 @@ export function newGame(mode, names, cards, rand = Math.random) {
   } else {
     s.score = 0; s.cardsLeft = COOP_CARDS;
   }
+  drawCard(s, rand); // the card is picked in the open, before anyone sees the target
   return s;
 }
 
@@ -41,8 +42,13 @@ export function drawCard(s, rand = Math.random) {
   s.card = s.deck.pop();
 }
 
-export function startTurn(s, rand = Math.random) {
+export function newRound(s, rand = Math.random) {
   drawCard(s, rand);
+  s.needle = 90; s.clue = ''; s.call = null; s.draft = null; s.phase = 'handoff';
+}
+
+// the psychic steps up: only now is there a target
+export function startTurn(s, rand = Math.random) {
   s.target = randomTarget(rand);
   s.needle = 90; s.clue = ''; s.call = null; s.phase = 'psychic';
 }

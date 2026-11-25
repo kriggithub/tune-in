@@ -1,6 +1,6 @@
 // node test.mjs — checks the scoring rules
 import assert from 'node:assert/strict';
-import { BAND, points, sideOf, newGame, resolve, startTurn } from './public/logic.js';
+import { BAND, points, sideOf, newGame, newRound, resolve, startTurn } from './public/logic.js';
 
 assert.equal(points(90, 90), 4);
 assert.equal(points(90, 90 + BAND / 2), 4);
@@ -41,13 +41,17 @@ r = resolve(s); assert.equal(s.winner, null); assert.equal(r.suddenDeath, true);
 // co-op: bullseye gives the card back, game ends when cards run out
 s = newGame('coop', [], CARDS); startTurn(s); s.target = 90; s.needle = 90; resolve(s);
 assert.equal(s.cardsLeft, 7); assert.equal(s.score, 4);
-s.cardsLeft = 1; startTurn(s); s.target = 20; s.needle = 160; resolve(s);
+s.cardsLeft = 1; newRound(s); startTurn(s); s.target = 20; s.needle = 160; resolve(s);
 assert.equal(s.winner, 'coop');
 
 // removed cards are never drawn, even after the deck reshuffles
 s = newGame('coop', [], CARDS); s.skip = ['l3|r3', 'l7|r7'];
 const drawn = new Set();
-for (let i = 0; i < 40; i++) { startTurn(s); drawn.add(s.card); }
+for (let i = 0; i < 40; i++) { newRound(s); drawn.add(s.card); }
 assert.ok(!drawn.has(3) && !drawn.has(7)); assert.equal(drawn.size, 8);
+
+// the card exists before the target; picking the psychic doesn't change the card
+s = newGame('coop', [], CARDS); assert.equal(s.phase, 'handoff'); assert.notEqual(s.card, null);
+const before = s.card; startTurn(s); assert.equal(s.card, before); assert.equal(s.phase, 'psychic');
 
 console.log('all rules ok');

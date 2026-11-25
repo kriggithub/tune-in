@@ -11,6 +11,11 @@ or co-op.
 - **Decks:** pick a deck on the menu or make your own (one per group you play
   with). Decks live on the server and are shared by everyone with the link — no
   login. *Classic* starts with the 130 built-in cards.
+- **Passwords:** a deck can have a password (deck editor → *Add a password*). Its
+  cards can't be read, copied or changed without it, online games playing it need
+  it to join, and wrong guesses are limited to 10 an hour.
+- **Each round:** the card is picked first (swap, rewrite, remove or write a new
+  one); the target only appears once someone taps *I'm the psychic*.
 - **Mid-game:** the psychic can tap the card to rewrite it (saved as a new card)
   or ✕ to remove it; the *Cards* button adds or removes cards. All of it saves
   to the deck being played.
