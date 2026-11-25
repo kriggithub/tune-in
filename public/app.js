@@ -23,39 +23,55 @@ const teamName = i => `<span class="t${i}">${esc(S.teams[i].name)}</span>`;
 const key = c => c.join('|');
 
 // ---- deck library: shared on the server, cached on this phone for offline play ----
-let library = store.get('tunein.library', []);   // [{ id, name, count }]
+let library = store.get('tunein.library', []);   // public decks (Classic): [{ id, name, count }]
+let privateDecks = store.get('tunein.private', []); // the Private folder, once unlocked on this phone
 let deckId = store.get('tunein.deck', 'classic'); // the deck new games use
 let editing = null;                               // deck open in the editor
-const keys = () => store.get('tunein.keys', {}); // passwords of locked decks this phone has opened
+const keys = () => store.get('tunein.keys', {}); // passwords of private decks this phone has opened
 const setKey = (id, k) => store.set('tunein.keys', { ...keys(), [id]: k });
-// sends the deck's password if this phone knows it (for a copy, the source deck's)
-const api = (path = '', method = 'GET', body, keyId = path.slice(1) || body?.from) =>
-  fetch('/api/decks' + path, { method, body: body && JSON.stringify(body),
-    headers: { 'content-type': 'application/json', 'x-deck-key': encodeURIComponent(keys()[keyId] || '') } })
-    .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))));
-const deckLabel = () => { const d = library.find(x => x.id === deckId); return d ? `Deck: ${d.name} · ${d.count} cards` : 'Choose a deck'; };
-const deckRows = () => library.length ? library.map(d => `<div class="item ${d.id === deckId ? 'sel' : ''}">
-    <button class="pick" data-pick="${esc(d.id)}">${d.id === deckId ? '✓ ' : ''}${d.locked ? '🔒 ' : ''}${esc(d.name)} <span class="muted">· ${d.count}</span></button>
-    <button class="ghost small" data-edit="${esc(d.id)}">Edit</button></div>`).join('')
-  : `<p class="muted">Can't reach the deck library. Check your connection.</p>`;
+const folderKey = () => store.get('tunein.folderkey', '');
+// errors reject as "401:folder" / "401:deck" (which password is missing) or the bare status
+const api = (path = '', method = 'GET', body, keyId = path.slice(1) || body?.from, base = '/api/decks') =>
+  fetch(base + path, { method, body: body && JSON.stringify(body), headers: { 'content-type': 'application/json',
+    'x-folder-key': encodeURIComponent(folderKey()), 'x-deck-key': encodeURIComponent(keys()[keyId] || '') } })
+    .then(async r => r.ok ? r.json() : Promise.reject(new Error(r.status + ((await r.json().catch(() => ({}))).error === 'deck' ? ':deck' : r.status === 401 ? ':folder' : ''))));
+const allDecks = () => [...library, ...privateDecks];
+const deckLabel = () => { const d = allDecks().find(x => x.id === deckId); return d ? `Deck: ${d.id === 'classic' ? '' : '🔒 '}${d.name} · ${d.count} cards` : 'Choose a deck'; };
+const deckRow = d => `<div class="item ${d.id === deckId ? 'sel' : ''}">
+    <button class="pick" data-pick="${esc(d.id)}">${d.id === deckId ? '✓ ' : ''}${esc(d.name)}${d.locked ? ' 🔑' : ''} <span class="muted">· ${d.count}</span></button>
+    <button class="ghost small" data-edit="${esc(d.id)}">Edit</button></div>`;
+const deckRows = () => (library.length ? library.map(deckRow).join('') : `<p class="muted">Can't reach the deck library. Check your connection.</p>`)
+  + `<div class="item ${privateDecks.some(d => d.id === deckId) ? 'sel' : ''}"><button class="pick" data-act="private">🔒 Private <span class="muted">· ${folderKey() ? privateDecks.length + ' decks' : 'password'}</span></button><span class="muted">›</span></div>`;
+const privateRows = () => privateDecks.length ? privateDecks.map(deckRow).join('') : `<p class="muted">No private decks yet.</p>`;
 
 async function refreshLibrary() {
   try { library = await api(); store.set('tunein.library', library); } catch { return; }
+  if (folderKey()) try { privateDecks = await api('', 'GET', null, '', '/api/folder'); store.set('tunein.private', privateDecks); } catch {}
   // update in place: a full redraw would wipe what someone is typing
   const b = app.querySelector('[data-act=decks]'); if (b) b.textContent = deckLabel();
-  const l = app.querySelector('.decklist'); if (l) l.innerHTML = deckRows();
+  const l = app.querySelector('.decklist'); if (l) l.innerHTML = ui === 'private' ? privateRows() : deckRows();
 }
 
-// null = locked and no right password given
+// ask for a password and remember it; false = cancelled
+function askPassword(which, id, again) {
+  const k = prompt((again ? 'Wrong password (or too many tries: wait an hour). ' : '')
+    + (which === 'deck' ? 'This deck has its own password:' : 'Password for the Private folder:'));
+  if (!k) return false;
+  which === 'deck' ? setKey(id, k) : store.set('tunein.folderkey', k);
+  return true;
+}
+
+// null = private and no right password given
 async function loadDeck(id) {
   const cache = store.get('tunein.deckcache', {});
-  for (let tries = 0; tries < 3; tries++) {
+  let last = '';
+  for (let tries = 0; tries < 4; tries++) {
     try { const d = await api('/' + id); cache[id] = d; store.set('tunein.deckcache', cache); return d; }
     catch (e) {
-      if (e.message !== '401') return cache[id] || { id: null, name: 'Built-in', cards: CARDS }; // offline and never loaded
-      const k = prompt(tries ? 'Wrong password (or too many tries: wait an hour). Try again:' : 'This deck has a password:');
-      if (!k) return null;
-      setKey(id, k);
+      if (!e.message.startsWith('401')) return cache[id] || { id: null, name: 'Built-in', cards: CARDS }; // offline and never loaded
+      const which = e.message.split(':')[1];
+      if (!askPassword(which, id, which === last)) return null;
+      last = which;
     }
   }
   return null;
@@ -78,7 +94,7 @@ const flushOps = () => (flushing ||= sendOps().finally(() => { flushing = null; 
 async function sendOps() {
   for (let ops = store.get('tunein.ops', []); ops.length; ops = store.get('tunein.ops', [])) {
     try { await api('/' + ops[0][0], 'POST', ops[0][1]); }
-    catch (e) { if (!['404', '400', '401'].includes(e.message)) break; } // offline: retry later; bad/deleted/locked deck: drop it
+    catch (e) { if (!/^(404|400|401)/.test(e.message)) break; } // offline: retry later; bad/deleted/locked deck: drop it
     store.set('tunein.ops', store.get('tunein.ops', []).slice(1));
   }
 }
@@ -94,7 +110,8 @@ const go = phase => { S.phase = phase; save(); render(); };
 
 // ---- online rooms ----
 let ws = null, pending = null, skipNext = false, lastNeedleSend = 0, retry = null;
-let roomKey = '', hosting = false; // a room playing a locked deck needs that deck's password
+let roomKey = '', hosting = false, hostTwo = false; // a room playing a private deck needs the same passwords:
+// roomKey = "<folder password>\n<deck password or empty>"; hostTwo = the deck has its own password
 const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const newCode = () => Array.from({ length: 4 }, () => ALPHA[Math.floor(Math.random() * ALPHA.length)]).join('');
 const roomLink = () => `${location.origin}${location.pathname}?room=${ROOM}`;
@@ -103,14 +120,14 @@ function connect() {
   clearTimeout(retry);
   if (!ROOM || (ws && ws.readyState <= 1)) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/room/${ROOM}?key=${encodeURIComponent(roomKey)}${hosting ? '&new=1' : ''}`);
+  ws = new WebSocket(`${proto}://${location.host}/room/${ROOM}?key=${encodeURIComponent(roomKey)}${hosting ? '&new=1' + (hostTwo ? '&two=1' : '') : ''}`);
   ws.onopen = () => {
     hosting = false;
     if (pending) { ws.send(pending); pending = null; skipNext = true; } // our change wins over the stored copy
     renderStatus();
   };
   ws.onmessage = e => {
-    if (e.data === '"locked"') return askRoomKey();
+    if (String(e.data).startsWith('{"locked"')) return askRoomKey(JSON.parse(e.data));
     if (skipNext) { skipNext = false; return; }
     receive(e.data);
   };
@@ -146,18 +163,24 @@ function receive(data) {
   }
   const before = S && S.phase;
   S = n;
-  if (roomKey && S.deckId && !keys()[S.deckId]) setKey(S.deckId, roomKey); // the room password is the deck's, so edits work
+  if (roomKey && S.deckId) { // the room's passwords are the deck's, so edits from this phone work too
+    const [f, d] = roomKey.split('\n');
+    if (!folderKey()) store.set('tunein.folderkey', f);
+    if (d && !keys()[S.deckId]) setKey(S.deckId, d);
+  }
   if (deckOpen) return; // the game screen redraws when the panel closes
   // only the needle moved: update it in place instead of redrawing the screen
   if (before === 'guess' && S.phase === 'guess' && app.querySelector('#needle')) return moveNeedle(S.needle);
   render();
 }
 
-function askRoomKey() {
+function askRoomKey(lock) {
   const old = ws; ws = null; old.onclose = null; old.close();
-  const k = prompt(S ? 'Password for this game:' : `Game ${ROOM} plays a deck with a password. Password (wrong guesses lock you out for an hour):`);
-  if (!k) return leaveRoom();
-  roomKey = k; store.set('tunein.roomkey', { code: ROOM, key: k }); connect();
+  const f = prompt(`Game ${ROOM} plays a private deck. Private folder password (wrong guesses lock you out for an hour):`);
+  if (!f) return leaveRoom();
+  const d = lock.deck ? prompt('And the deck\'s own password:') : '';
+  if (lock.deck && !d) return leaveRoom();
+  roomKey = `${f}\n${d}`; store.set('tunein.roomkey', { code: ROOM, key: roomKey }); connect();
 }
 
 function joinRoom(code, key = '') {
@@ -307,27 +330,32 @@ const views = {
       <button data-act="do-join">Join</button><div class="grow"></div><button class="ghost" data-act="menu">Back</button>`;
   },
   decks() {
-    return `<h2>Decks</h2><p class="muted">Pick the deck to play with. Decks are shared: anyone with the link sees and edits the same ones.</p>
+    return `<h2>Decks</h2><p class="muted">Pick the deck to play with. Classic is open to everyone. Private needs a password, and a private deck can have its own too.</p>
       <div class="list decklist">${deckRows()}</div>
-      <div class="stack"><div><label for="dn">New deck</label><input type="text" id="dn" placeholder="e.g. Me &amp; Angelli" maxlength="30"></div>
+      <div class="grow"></div><button class="ghost" data-act="menu">Back</button>`;
+  },
+  private() {
+    return `<div class="top"><h2 class="grow">🔒 Private</h2><button class="small" data-act="decks">Back</button></div>
+      <p class="muted">Decks here need the folder password. 🔑 = the deck has its own password as well.</p>
+      <div class="list decklist">${privateRows()}</div>
+      <div class="stack"><div><label for="dn">New private deck</label><input type="text" id="dn" placeholder="e.g. Cousins" maxlength="30"></div>
         <div><label for="dfrom">Start with</label><select id="dfrom"><option value="">No cards (add your own)</option>
           <option value="builtin">The ${CARDS.length} built-in cards</option>
-          ${library.map(d => `<option value="${esc(d.id)}">A copy of ${esc(d.name)}</option>`).join('')}</select></div>
-        <button data-act="new-deck">Create deck</button></div>
-      <div class="grow"></div><button class="ghost" data-act="menu">Back</button>`;
+          ${privateDecks.map(d => `<option value="${esc(d.id)}">A copy of ${esc(d.name)}</option>`).join('')}</select></div>
+        <button data-act="new-deck">Create deck</button></div>`;
   },
   deckedit() {
     if (!editing) return `<div class="grow"></div><p class="center muted">Loading the deck…</p><div class="grow"></div><button class="ghost" data-act="decks">Back</button>`;
     const d = editing, order = d.cards.map((_, i) => i).reverse(); // newest first
-    return `<div class="top"><input type="text" id="dname" value="${esc(d.name)}" maxlength="30" aria-label="Deck name"><button class="small" data-act="decks">Done</button></div>
+    return `<div class="top"><input type="text" id="dname" value="${esc(d.name)}" maxlength="30" aria-label="Deck name"><button class="small" data-act="${d.private ? 'private' : 'decks'}">Done</button></div>
       <div class="row"><input type="text" id="cl" placeholder="Left end" maxlength="40"><input type="text" id="cr" placeholder="Right end" maxlength="40"></div>
       <button data-act="add-card">Add card</button>
-      <p class="muted" style="font-size:14px">${d.cards.length} cards, newest first. Changes save for everyone.</p>
+      <p class="muted" style="font-size:14px">${d.cards.length} cards, newest first. Changes save for everyone${d.private ? ' who has the password' : ''}.</p>
       <div class="list">${order.map(i => `<div class="item"><span>${esc(d.cards[i][0])} <span class="muted">↔</span> ${esc(d.cards[i][1])}</span>
         <button class="ghost small" data-del="${i}" aria-label="Delete card">✕</button></div>`).join('')}</div>
-      <button class="ghost" data-act="lock-deck">🔒 ${d.locked ? 'Change the password' : 'Add a password'}</button>
-      ${d.locked ? `<button class="ghost" data-act="unlock-deck">Remove the password</button>` : ''}
-      <button class="ghost danger" data-act="delete-deck">Delete this deck</button>`;
+      ${d.private ? `<button class="ghost" data-act="lock-deck">🔑 ${d.locked ? 'Change this deck\'s password' : 'Give this deck its own password'}</button>
+      ${d.locked ? `<button class="ghost" data-act="unlock-deck">Remove this deck's password</button>` : ''}
+      <button class="ghost danger" data-act="delete-deck">Delete this deck</button>` : ''}`;
   },
   deck() {
     const skip = new Set(S.skip), order = S.cards.map((_, i) => i).reverse(); // newest first
@@ -413,12 +441,12 @@ const views = {
   },
 };
 
-let lastLocked = false; // the deck gameFromDeck just loaded has a password
+let lastDeck = null; // the deck gameFromDeck just loaded (for the room's passwords)
 async function gameFromDeck(mode, teamNames, id) {
   flash = '';
   const d = await loadDeck(id);
   if (!d) return null;
-  lastLocked = !!d.locked;
+  lastDeck = d;
   if (!d.cards.length) { flash = `The ${d.name} deck has no cards yet. Add some first.`; ui = 'menu'; S = null; render(); return null; }
   const g = newGame(mode, teamNames, d.cards.slice());
   g.deckId = d.id; g.deckName = d.name;
@@ -434,7 +462,8 @@ const actions = {
   async host() {
     const g = await gameFromDeck(setupMode, names(), deckId);
     if (!g) return;
-    hosting = true; joinRoom(newCode(), g.deckId && lastLocked ? keys()[g.deckId] : ''); S = g; save(); render();
+    hosting = true; hostTwo = !!lastDeck.locked;
+    joinRoom(newCode(), lastDeck.private ? `${folderKey()}\n${lastDeck.locked ? keys()[g.deckId] : ''}` : ''); S = g; save(); render();
   },
   join() { flash = ''; ui = 'join'; render(); app.querySelector('#code').focus(); },
   'do-join'() {
@@ -443,10 +472,19 @@ const actions = {
     flash = ''; joinRoom(code);
   },
   decks() { flash = ''; ui = 'decks'; editing = null; render(); refreshLibrary(); },
+  async private() {
+    for (let again = false; ; again = true) {
+      if (!folderKey() || again) { if (!askPassword('folder', '', again)) return; }
+      try { privateDecks = await api('', 'GET', null, '', '/api/folder'); store.set('tunein.private', privateDecks); break; }
+      catch (e) { if (!e.message.startsWith('401')) return alert("Can't reach the deck library. Are you online?"); }
+    }
+    ui = 'private'; editing = null; render();
+  },
   async 'new-deck'() {
     const name = app.querySelector('#dn').value.trim(), from = app.querySelector('#dfrom').value;
     if (!name) return app.querySelector('#dn').focus();
-    try { editing = await api('', 'POST', { name, from }); } catch { return alert("Couldn't create the deck. Are you online?"); }
+    try { editing = await api('', 'POST', { name, from }); }
+    catch (e) { return alert(e.message.startsWith('401') ? 'That needs the password again. Go back and reopen Private.' : "Couldn't create the deck. Are you online?"); }
     deckId = editing.id; store.set('tunein.deck', deckId); ui = 'deckedit'; render(); refreshLibrary();
   },
   'add-card'() {
@@ -470,7 +508,7 @@ const actions = {
     if (!confirm(`Delete the “${editing.name}” deck for everyone?`)) return;
     try { await api('/' + editing.id, 'DELETE'); } catch { return alert("Couldn't delete it. Are you online?"); }
     if (deckId === editing.id) { deckId = 'classic'; store.set('tunein.deck', deckId); }
-    actions.decks();
+    privateDecks = privateDecks.filter(d => d.id !== editing.id); actions.private();
   },
   share() {
     const url = roomLink();
@@ -531,8 +569,8 @@ app.addEventListener('click', async e => {
   }
   else if (b.dataset.pick) {
     const id = b.dataset.pick;
-    if (library.find(d => d.id === id)?.locked && !(await loadDeck(id))) return; // ask for the password up front
-    deckId = id; store.set('tunein.deck', deckId); app.querySelector('.decklist').innerHTML = deckRows();
+    if (privateDecks.find(d => d.id === id)?.locked && !(await loadDeck(id))) return; // ask for the deck's password up front
+    deckId = id; store.set('tunein.deck', deckId); app.querySelector('.decklist').innerHTML = ui === 'private' ? privateRows() : deckRows();
   }
   else if (b.dataset.edit) {
     ui = 'deckedit'; editing = null; render();

@@ -8,12 +8,11 @@ or co-op.
 - **On one phone:** pass it around.
 - **Online:** tap *Play online*, share the 4-letter code or link; everyone plays
   on their own phone or browser and moves sync live.
-- **Decks:** pick a deck on the menu or make your own (one per group you play
-  with). Decks live on the server and are shared by everyone with the link — no
-  login. *Classic* starts with the 130 built-in cards.
-- **Passwords:** a deck can have a password (deck editor → *Add a password*). Its
-  cards can't be read, copied or changed without it, online games playing it need
-  it to join, and wrong guesses are limited to 10 an hour.
+- **Decks:** *Classic* (the 130 built-in cards) is open to everyone. Every other
+  deck lives in the *Private* folder, which needs the folder password; a private
+  deck can also have its own password. Without them a private deck can't be
+  listed, read, copied or changed, online games playing it need the same
+  passwords to join, and wrong guesses are limited to 10 an hour.
 - **Each round:** the card is picked first (swap, rewrite, remove or write a new
   one); the target only appears once someone taps *I'm the psychic*.
 - **Mid-game:** the psychic can tap the card to rewrite it (saved as a new card)

@@ -12,10 +12,12 @@ Deploys from `main` via Cloudflare Workers Builds. No secrets.
 - `public/cards.js` — built-in deck. Write original pairs; don't copy another game's card list.
 - `public/sw.js` — offline cache (stale-while-revalidate: a push shows up on the *second* open). Add new files to `FILES`.
 - `worker.js` — room relay (latest state per room, forwards to others, wipes rooms idle a week) and the
-  deck API `/api/decks[/id]` (GET list/deck, POST create or `{op: add|remove|rename|lock|unlock}`, DELETE).
-  Open decks need no auth (Kurt's choice). A deck with a password (salted hash, header `x-deck-key`) is unreadable,
-  uncopyable and uneditable without it; a room hosting it is locked with the same password (`?key=&new=1`).
-  Wrong guesses: 10/hour per IP (decks) or per room. Never commit a deck's password or card text. Inputs are clipped there. Deck edits queue on the phone (`tunein.ops`) so offline edits land later.
+  deck API: `GET /api/decks` (public list = Classic), `/api/decks/<id>` (GET, POST `{op: add|remove|rename|lock|unlock}`,
+  DELETE), `POST /api/decks` (create, always private), `/api/folder` (GET private list; POST `{pin}` sets the folder
+  password: first time free, then needs the current one). Classic is public and can't be deleted or locked; every other
+  deck needs the folder password (`x-folder-key`) plus its own if set (`x-deck-key`); salted hashes only. A room hosting a
+  private deck is locked with "folder\ndeck" (`?key=&new=1&two=1`). Wrong guesses: 10/hour per IP or per room.
+  Never commit a password or private card text. Inputs are clipped there. Deck edits queue on the phone (`tunein.ops`) so offline edits land later.
 - `public/cards.js` also seeds the `Classic` deck on the server once; editing it later doesn't change Classic.
 
 Test: `node test.mjs`, and for online changes `npx wrangler dev` + two browser sessions.
