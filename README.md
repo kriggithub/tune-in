@@ -8,17 +8,20 @@ or co-op.
 - **On one phone:** pass it around.
 - **Online:** tap *Play online*, share the 4-letter code or link; everyone plays
   on their own phone or browser and moves sync live.
-- **Your own cards:** *Cards* on the menu: add cards, remove built-ins you don't like
-  (or tap *Don't show this card again* after a round). Mid-game, the *Cards* button
-  in the top bar adds or removes cards in the current game. Online, everyone's custom cards and removals are
-  added to the room.
+- **Decks:** pick a deck on the menu or make your own (one per group you play
+  with). Decks live on the server and are shared by everyone with the link — no
+  login. *Classic* starts with the 130 built-in cards.
+- **Mid-game:** the psychic can tap the card to rewrite it (saved as a new card)
+  or ✕ to remove it; the *Cards* button adds or removes cards. All of it saves
+  to the deck being played.
 
 **Install on a phone:** open the site → Share → **Add to Home Screen**.
 
 ## Hosting
 
-One Cloudflare Worker (free plan) serves `public/` and relays online games
-through a Durable Object per room (`worker.js`, `wrangler.jsonc`). Deploys from
+One Cloudflare Worker (free plan) serves `public/`, relays online games through
+a Durable Object per room, and keeps the deck library in one more Durable Object
+(`worker.js`, `wrangler.jsonc`). Deploys from
 `main` via Cloudflare Workers Builds (the repo is connected in the Cloudflare
 dashboard), so pushing is deploying.
 

@@ -52,6 +52,11 @@
   button:active { transform: scale(.98); }
   input[type=text] { font: inherit; width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
     background: var(--panel); color: var(--text); user-select: text; -webkit-user-select: text; }
+  select { font: inherit; width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  .top input[type=text] { flex: 1; font-weight: 700; }
+  .item .pick { flex: 1; text-align: left; background: none; color: var(--text); padding: 6px 0; min-height: 0; font-weight: 600; }
+  .item.sel { border-color: var(--amber); }
+  button.danger { color: var(--needle); }
   label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
   .seg { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 4px; }
   .seg button { flex: 1; background: none; color: var(--muted); min-height: 44px; padding: 10px; }
