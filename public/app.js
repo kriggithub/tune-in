@@ -16,6 +16,8 @@ let setupMode = 'teams';
 let flash = '';            // one-off message on the menu / join screen
 let prevPhase = null;      // animate the reveal only when we first arrive on it
 let openBuiltIn = false;   // keep the built-in list open while removing cards
+let deckOpen = false;      // the in-game Cards panel is showing
+let deckNote = '';
 
 const esc = t => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const teamName = i => `<span class="t${i}">${esc(S.teams[i].name)}</span>`;
@@ -28,6 +30,11 @@ function removeCard(c) {
   const mine = myCards(), i = mine.findIndex(m => key(m) === key(c));
   if (i >= 0) { mine.splice(i, 1); store.set('tunein.cards', mine); }
   else store.set('tunein.hidden', [...hidden(), key(c)]);
+}
+function restoreCard(c) {
+  const h = hidden();
+  if (h.delete(key(c))) store.set('tunein.hidden', [...h]);
+  else if (!CARDS.some(b => key(b) === key(c)) && !myCards().some(m => key(m) === key(c))) store.set('tunein.cards', [...myCards(), c]);
 }
 
 // ---- saving / syncing ----
@@ -85,6 +92,7 @@ function receive(data) {
   const first = !S, before = S && S.phase;
   S = n;
   if (first) mergeMyCards();
+  if (deckOpen) return; // the game screen redraws when the panel closes
   // only the needle moved: update it in place instead of redrawing the screen
   if (before === 'guess' && S.phase === 'guess' && app.querySelector('#needle')) return moveNeedle(S.needle);
   render();
@@ -104,7 +112,7 @@ function joinRoom(code) {
   ROOM = code; S = null; store.set('tunein.room', ROOM); connect(); render();
 }
 function leaveRoom() {
-  const old = ws; ROOM = null; ws = null; S = null; ui = 'menu';
+  const old = ws; ROOM = null; ws = null; S = null; ui = 'menu'; deckOpen = false;
   store.set('tunein.room', null);
   if (old) old.close();
   render();
@@ -169,10 +177,10 @@ function bindDial() {
 
 function topBar() {
   const live = ws && ws.readyState === 1;
-  const room = ROOM ? `<span class="room" title="${live ? 'Connected' : 'Reconnecting…'}"><i class="${live ? 'on' : ''}"></i>${ROOM}</span>` : '';
-  const right = `${room}<button class="ghost small" data-act="quit" aria-label="${ROOM ? 'Leave game' : 'Quit game'}">✕</button>`;
+  const room = ROOM ? `<span class="room" role="img" aria-label="Room ${ROOM}, ${live ? 'connected' : 'reconnecting'}"><i class="${live ? 'on' : ''}"></i></span>` : '';
+  const right = `${room}<button class="ghost small" data-act="deck">Cards</button><button class="ghost small" data-act="quit" aria-label="${ROOM ? 'Leave game' : 'Quit game'}">✕</button>`;
   if (S.mode === 'coop') return `<div class="top"><div class="score"><div class="chip"><span>Score</span><b>${S.score}</b></div>
-    <div class="chip"><span>Cards left</span><b>${S.cardsLeft}</b></div></div>${right}</div>`;
+    <div class="chip"><span>To go</span><b>${S.cardsLeft}</b></div></div>${right}</div>`;
   const chip = i => `<div class="chip t${i} ${S.active === i && S.phase !== 'end' ? 'on' : ''}"><span>${esc(S.teams[i].name)}</span><b>${S.teams[i].score}</b></div>`;
   return `<div class="top"><div class="score">${chip(0)}${chip(1)}</div>${right}</div>`;
 }
@@ -233,6 +241,17 @@ const views = {
           <span>${esc(c[0])} <span class="muted">↔</span> ${esc(c[1])}</span>
           <button class="ghost small" data-${off ? 'unhide' : 'hide'}="${i}" aria-label="${off ? 'Bring back' : 'Remove'} card">${off ? '↺' : '✕'}</button></div>`; }).join('')}</div></details>
       <div class="grow"></div><button class="ghost" data-act="menu">Back</button>`;
+  },
+  deck() {
+    const skip = new Set(S.skip), order = S.cards.map((_, i) => i).reverse(); // newest first
+    return `<div class="top"><h2 class="grow" style="font-size:22px">Cards in this game${ROOM ? ` <span class="muted" style="font-size:15px">· room ${ROOM}</span>` : ''}</h2><button class="small" data-act="deck-done">Done</button></div>
+      <div class="row"><input type="text" id="gl" placeholder="Left end" maxlength="40"><input type="text" id="gr" placeholder="Right end" maxlength="40"></div>
+      <button class="ghost" data-act="deck-add">Add to this game</button>
+      ${deckNote ? `<p class="note">${esc(deckNote)}</p>` : ''}
+      <p class="muted" style="font-size:14px">${S.cards.filter(c => !skip.has(key(c))).length} of ${S.cards.length} in play. ✕ removes a card, ↺ brings it back. New cards come up next and are saved to your phone.</p>
+      <div class="list">${order.map(i => { const c = S.cards[i], off = skip.has(key(c)); return `<div class="item ${off ? 'off' : ''}">
+        <span>${esc(c[0])} <span class="muted">↔</span> ${esc(c[1])}</span>
+        <button class="ghost small" data-g${off ? 'unskip' : 'skip'}="${i}" aria-label="${off ? 'Bring back' : 'Remove'} card">${off ? '↺' : '✕'}</button></div>`; }).join('')}</div>`;
   },
   handoff() {
     if (ROOM) {
@@ -335,12 +354,24 @@ const actions = {
   },
   'reveal-target'() { startTurn(S); S.psychic = ME; save(); render(); },
   'new-card'() { drawCard(S); save(); render(); },
+  deck() { deckOpen = true; deckNote = ''; render(); },
+  'deck-done'() { deckOpen = false; deckNote = ''; render(); },
+  'deck-add'() {
+    const l = app.querySelector('#gl').value.trim(), r = app.querySelector('#gr').value.trim();
+    if (!l || !r) return;
+    const c = [l, r], k = key(c), i = S.cards.findIndex(x => key(x) === k);
+    restoreCard(c); // saves it to this phone's custom cards (or un-removes a built-in)
+    if (i < 0) { S.cards.push(c); S.deck.push(S.cards.length - 1); }
+    else { S.skip = S.skip.filter(x => x !== k); S.deck = S.deck.filter(x => x !== i); S.deck.push(i); }
+    deckNote = `Added: ${l} ↔ ${r}. It comes up next.`;
+    save(); render(); app.querySelector('#gl').focus();
+  },
   drop() { const c = S.cards[S.card]; removeCard(c); S.skip.push(key(c)); save(); render(); },
   'to-guess'() { go('guess'); },
   lock() { S.mode === 'teams' ? go('call') : (resolve(S), save(), render()); },
   next() { go(S.winner !== null ? 'end' : 'handoff'); },
   again() { S = newGame(S.mode, S.teams ? S.teams.map(t => t.name) : [], ROOM ? S.cards : deckForNewGame()); save(); render(); },
-  menu() { ui = 'menu'; S = null; store.set('tunein.v1', null); render(); },
+  menu() { ui = 'menu'; S = null; deckOpen = false; store.set('tunein.v1', null); render(); },
   quit() {
     if (ROOM) { if (confirm('Leave this online game? You can rejoin with the code.')) leaveRoom(); }
     else if (S.phase === 'end' || confirm('Quit this game?')) actions.menu();
@@ -359,6 +390,13 @@ app.addEventListener('click', e => {
     store.set('tunein.hidden', [...h]); openBuiltIn = true;
     const y = window.scrollY; render(); window.scrollTo(0, y); // stay where you were in the long list
   }
+  else if (b.dataset.gskip || b.dataset.gunskip) {
+    const i = +(b.dataset.gskip ?? b.dataset.gunskip), c = S.cards[i], k = key(c);
+    if (b.dataset.gskip) { removeCard(c); if (!S.skip.includes(k)) S.skip.push(k); }
+    else { restoreCard(c); S.skip = S.skip.filter(x => x !== k); if (!S.deck.includes(i)) S.deck.unshift(i); }
+    deckNote = ''; save();
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  }
   else if (b.dataset.act) actions[b.dataset.act]();
 });
 app.addEventListener('input', e => {
@@ -370,6 +408,8 @@ app.addEventListener('keydown', e => {
   if (e.target.id === 'code') actions['do-join']();
   if (e.target.id === 'cl') app.querySelector('#cr').focus();
   if (e.target.id === 'cr') actions['add-card']();
+  if (e.target.id === 'gl') app.querySelector('#gr').focus();
+  if (e.target.id === 'gr') actions['deck-add']();
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) connect(); });
 
@@ -379,9 +419,10 @@ function render() {
       <button class="ghost" data-act="quit">Cancel</button>`;
     return;
   }
-  app.innerHTML = S ? views[S.phase]() : views[ui]();
-  prevPhase = S && S.phase;
+  app.innerHTML = !S ? views[ui]() : deckOpen ? views.deck() : views[S.phase]();
   window.scrollTo(0, 0);
+  if (deckOpen) return;
+  prevPhase = S && S.phase;
   if (S && S.phase === 'guess' && !watching()) bindDial();
   if (S && S.phase === 'reveal') requestAnimationFrame(() => requestAnimationFrame(() => {
     const t = app.querySelector('.target'); if (t) t.style.opacity = 1;
