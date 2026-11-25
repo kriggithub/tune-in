@@ -44,4 +44,10 @@ assert.equal(s.cardsLeft, 7); assert.equal(s.score, 4);
 s.cardsLeft = 1; startTurn(s); s.target = 20; s.needle = 160; resolve(s);
 assert.equal(s.winner, 'coop');
 
+// removed cards are never drawn, even after the deck reshuffles
+s = newGame('coop', [], CARDS); s.skip = ['l3|r3', 'l7|r7'];
+const drawn = new Set();
+for (let i = 0; i < 40; i++) { startTurn(s); drawn.add(s.card); }
+assert.ok(!drawn.has(3) && !drawn.has(7)); assert.equal(drawn.size, 8);
+
 console.log('all rules ok');

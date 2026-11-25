@@ -14,12 +14,21 @@ let ROOM = null;           // 4-letter code when playing online
 let ui = 'menu';           // non-game screens: menu | cards | join
 let setupMode = 'teams';
 let flash = '';            // one-off message on the menu / join screen
+let prevPhase = null;      // animate the reveal only when we first arrive on it
+let openBuiltIn = false;   // keep the built-in list open while removing cards
 
 const esc = t => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const teamName = i => `<span class="t${i}">${esc(S.teams[i].name)}</span>`;
 const myCards = () => store.get('tunein.cards', []);
 const useBuiltIn = () => store.get('tunein.builtin', true);
-const deckForNewGame = () => [...(useBuiltIn() ? CARDS : []), ...myCards()];
+const key = c => c.join('|');
+const hidden = () => new Set(store.get('tunein.hidden', [])); // built-in cards removed on this phone
+const deckForNewGame = () => { const h = hidden(); return [...(useBuiltIn() ? CARDS : []), ...myCards()].filter(c => !h.has(key(c))); };
+function removeCard(c) {
+  const mine = myCards(), i = mine.findIndex(m => key(m) === key(c));
+  if (i >= 0) { mine.splice(i, 1); store.set('tunein.cards', mine); }
+  else store.set('tunein.hidden', [...hidden(), key(c)]);
+}
 
 // ---- saving / syncing ----
 function save() {
@@ -60,6 +69,7 @@ function clean(n) {
   for (const k of ['target', 'needle', 'score', 'cardsLeft', 'active', 'card']) if (k in n) n[k] = Number(n[k]) || 0;
   if (n.teams) n.teams = n.teams.slice(0, 2).map(t => ({ name: String(t.name), score: Number(t.score) || 0 }));
   n.cards = n.cards.filter(c => Array.isArray(c) && c.length === 2).map(c => c.map(String));
+  n.skip = Array.isArray(n.skip) ? n.skip.map(String) : [];
   const ok = ['handoff', 'psychic', 'guess', 'call', 'reveal', 'end'].includes(n.phase) && n.card < n.cards.length
     && (n.mode === 'coop' || (n.mode === 'teams' && n.teams?.length === 2));
   return ok ? n : null;
@@ -80,12 +90,14 @@ function receive(data) {
   render();
 }
 
-// add this device's custom cards to the room's deck (they come up next)
+// add this device's custom cards to the room's deck (they come up next), and skip the cards it removed
 function mergeMyCards() {
-  const have = new Set(S.cards.map(c => c.join('|')));
-  const add = myCards().filter(c => !have.has(c.join('|')));
+  const have = new Set(S.cards.map(key)), h = hidden();
+  const add = myCards().filter(c => !have.has(key(c)) && !h.has(key(c)));
   for (const c of add) { S.cards.push(c); S.deck.push(S.cards.length - 1); }
-  if (add.length) send();
+  const skip = [...h].filter(k => have.has(k) && !S.skip.includes(k));
+  S.skip.push(...skip);
+  if (add.length || skip.length) send();
 }
 
 function joinRoom(code) {
@@ -206,7 +218,7 @@ const views = {
       <button data-act="do-join">Join</button><div class="grow"></div><button class="ghost" data-act="menu">Back</button>`;
   },
   cards() {
-    const mine = myCards();
+    const mine = myCards(), h = hidden();
     return `<h2>Cards</h2>
       <div class="stack"><p class="muted">Add your own: two opposite ends of a scale. They're saved on this phone and go into every game you start. Online, everyone's custom cards are added to the room's deck.</p>
         <div class="row"><input type="text" id="cl" placeholder="Left end" maxlength="40"><input type="text" id="cr" placeholder="Right end" maxlength="40"></div>
@@ -214,8 +226,12 @@ const views = {
       ${mine.length ? `<div class="list">${mine.map((c, i) => `<div class="item"><span>${esc(c[0])} <span class="muted">↔</span> ${esc(c[1])}</span>
         <button class="ghost small" data-del="${i}" aria-label="Delete card">✕</button></div>`).join('')}</div>`
         : `<p class="muted center">No custom cards yet.</p>`}
-      <label class="check"><input type="checkbox" id="builtin" ${useBuiltIn() ? 'checked' : ''}> Include the ${CARDS.length} built-in cards</label>
-      <details><summary>See the built-in cards</summary><div class="list">${CARDS.map(c => `<div class="item"><span>${esc(c[0])} <span class="muted">↔</span> ${esc(c[1])}</span></div>`).join('')}</div></details>
+      <label class="check"><input type="checkbox" id="builtin" ${useBuiltIn() ? 'checked' : ''}> Include the built-in cards</label>
+      <details ${openBuiltIn ? 'open' : ''}><summary>Built-in cards · ${CARDS.length - CARDS.filter(c => h.has(key(c))).length} of ${CARDS.length} in use</summary>
+        <p class="muted" style="font-size:14px;margin-top:8px">Tap ✕ to remove a card you don't like, ↺ to bring it back.</p>
+        <div class="list">${CARDS.map((c, i) => { const off = h.has(key(c)); return `<div class="item ${off ? 'off' : ''}">
+          <span>${esc(c[0])} <span class="muted">↔</span> ${esc(c[1])}</span>
+          <button class="ghost small" data-${off ? 'unhide' : 'hide'}="${i}" aria-label="${off ? 'Bring back' : 'Remove'} card">${off ? '↺' : '✕'}</button></div>`; }).join('')}</div></details>
       <div class="grow"></div><button class="ghost" data-act="menu">Back</button>`;
   },
   handoff() {
@@ -272,11 +288,13 @@ const views = {
       if (r.extraTurn) lines.push(`Bullseye while behind: ${teamName(r.team)} goes again`);
       if (r.suddenDeath) lines.push('Tied at the top. Sudden death: keep playing until someone pulls ahead.');
     }
-    return `${topBar()}${dial({ target: true, hidden: true })}${cardHTML()}
+    return `${topBar()}${dial({ target: true, hidden: prevPhase !== 'reveal' })}${cardHTML()}
       ${S.clue ? `<p class="clue">“${esc(S.clue)}”</p>` : ''}
       <div class="big">${head}</div>
       ${lines.map(l => `<p class="center">${l}</p>`).join('')}
       <div class="grow"></div>
+      ${S.skip.includes(key(S.cards[S.card])) ? `<p class="center muted">Card removed. You won't see it again.</p>`
+        : `<button class="ghost small" data-act="drop">Don't show this card again</button>`}
       <button data-act="next">${S.winner !== null ? 'See the result' : 'Next round'}</button>`;
   },
   end() {
@@ -317,6 +335,7 @@ const actions = {
   },
   'reveal-target'() { startTurn(S); S.psychic = ME; save(); render(); },
   'new-card'() { drawCard(S); save(); render(); },
+  drop() { const c = S.cards[S.card]; removeCard(c); S.skip.push(key(c)); save(); render(); },
   'to-guess'() { go('guess'); },
   lock() { S.mode === 'teams' ? go('call') : (resolve(S), save(), render()); },
   next() { go(S.winner !== null ? 'end' : 'handoff'); },
@@ -334,6 +353,12 @@ app.addEventListener('click', e => {
   if (b.dataset.mode) { setupMode = b.dataset.mode; render(); }
   else if (b.dataset.call) { S.call = b.dataset.call; resolve(S); save(); render(); }
   else if (b.dataset.del) { const c = myCards(); c.splice(+b.dataset.del, 1); store.set('tunein.cards', c); render(); }
+  else if (b.dataset.hide || b.dataset.unhide) {
+    const k = key(CARDS[+(b.dataset.hide ?? b.dataset.unhide)]), h = hidden();
+    b.dataset.hide ? h.add(k) : h.delete(k);
+    store.set('tunein.hidden', [...h]); openBuiltIn = true;
+    const y = window.scrollY; render(); window.scrollTo(0, y); // stay where you were in the long list
+  }
   else if (b.dataset.act) actions[b.dataset.act]();
 });
 app.addEventListener('input', e => {
@@ -355,6 +380,7 @@ function render() {
     return;
   }
   app.innerHTML = S ? views[S.phase]() : views[ui]();
+  prevPhase = S && S.phase;
   window.scrollTo(0, 0);
   if (S && S.phase === 'guess' && !watching()) bindDial();
   if (S && S.phase === 'reveal') requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -367,4 +393,4 @@ const linkCode = new URLSearchParams(location.search).get('room');
 if (linkCode) history.replaceState(null, '', location.pathname);
 const resume = (linkCode || store.get('tunein.room', '') || '').toUpperCase();
 if (/^[A-Z]{4}$/.test(resume)) joinRoom(resume);
-else { S = store.get('tunein.v1', null); if (S && !S.cards) S = null; render(); } // old saves without a deck are dropped
+else { S = store.get('tunein.v1', null); if (S && !S.cards) S = null; if (S) S.skip ||= []; render(); } // old saves without a deck are dropped

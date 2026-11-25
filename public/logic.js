@@ -21,7 +21,7 @@ export const sideOf = (target, needle) => (target < needle ? 'left' : target > n
 
 export function newGame(mode, names, cards, rand = Math.random) {
   const s = { mode, phase: 'handoff', cards, deck: shuffle(cards.length, rand), card: null,
-    target: 90, needle: 90, clue: '', call: null, last: null, winner: null };
+    target: 90, needle: 90, clue: '', call: null, last: null, winner: null, skip: [] };
   if (mode === 'teams') {
     s.teams = [{ name: names[0], score: 0 }, { name: names[1], score: 1 }]; // second team starts on 1
     s.active = 0;
@@ -31,8 +31,13 @@ export function newGame(mode, names, cards, rand = Math.random) {
   return s;
 }
 
+// s.skip: cards a player removed mid-game ("left|right" keys); never drawn again in this game
 export function drawCard(s, rand = Math.random) {
-  if (!s.deck.length) s.deck = shuffle(s.cards.length, rand);
+  const skip = new Set(s.skip || []);
+  const ok = i => !skip.has(s.cards[i].join('|'));
+  s.deck = s.deck.filter(ok);
+  if (!s.deck.length) s.deck = shuffle(s.cards.length, rand).filter(ok);
+  if (!s.deck.length) s.deck = shuffle(s.cards.length, rand); // everything removed: ignore the list
   s.card = s.deck.pop();
 }
 

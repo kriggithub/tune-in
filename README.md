@@ -8,7 +8,8 @@ or co-op.
 - **On one phone:** pass it around.
 - **Online:** tap *Play online*, share the 4-letter code or link; everyone plays
   on their own phone or browser and moves sync live.
-- **Your own cards:** *Cards* on the menu. Online, everyone's custom cards are
+- **Your own cards:** *Cards* on the menu: add cards, remove built-ins you don't like
+  (or tap *Don't show this card again* after a round). Online, everyone's custom cards and removals are
   added to the room.
 
 **Install on a phone:** open the site → Share → **Add to Home Screen**.
