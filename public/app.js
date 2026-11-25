@@ -77,6 +77,7 @@ function clean(n) {
   if (n.teams) n.teams = n.teams.slice(0, 2).map(t => ({ name: String(t.name), score: Number(t.score) || 0 }));
   n.cards = n.cards.filter(c => Array.isArray(c) && c.length === 2).map(c => c.map(String));
   n.skip = Array.isArray(n.skip) ? n.skip.map(String) : [];
+  n.draft = Array.isArray(n.draft) && n.draft.length === 2 ? n.draft.map(String) : null;
   const ok = ['handoff', 'psychic', 'guess', 'call', 'reveal', 'end'].includes(n.phase) && n.card < n.cards.length
     && (n.mode === 'coop' || (n.mode === 'teams' && n.teams?.length === 2));
   return ok ? n : null;
@@ -149,9 +150,29 @@ function moveNeedle(v) {
   const range = app.querySelector('#range'); if (range) range.value = S.needle;
 }
 
-function cardHTML() {
-  const [l, r] = S.cards[S.card];
-  return `<div class="card"><div><small>◀ left</small>${esc(l)}</div><div><small>right ▶</small>${esc(r)}</div></div>`;
+// S.draft: the card as the psychic is rewriting it (synced live); saved as a new card when they finish
+function cardHTML(editable = false) {
+  const [l, r] = S.draft || S.cards[S.card];
+  if (!editable) return `<div class="card"><div><small>◀ left</small>${esc(l)}</div><div><small>right ▶</small>${esc(r)}</div></div>`;
+  const field = (id, t, label) => `<span class="cardin" id="${id}" contenteditable="plaintext-only" role="textbox" aria-label="${label}" spellcheck="false">${esc(t)}</span>`;
+  return `<div class="card edit"><button class="x" data-act="remove-card" aria-label="Remove this card for good">✕</button>
+    <div><small>◀ left</small>${field('el', l, 'Left end')}</div><div><small>right ▶</small>${field('er', r, 'Right end')}</div></div>`;
+}
+
+let lastSent = 0, removed = null, cardNote = '';
+function commitDraft() {
+  const d = S.draft; S.draft = null;
+  if (!d) return;
+  const c = d.map(t => t.replace(/\s+/g, ' ').trim().slice(0, 40)), orig = S.cards[S.card];
+  if (c[0] && c[1] && key(c) !== key(orig)) {
+    let i = S.cards.findIndex(x => key(x) === key(c));
+    if (i < 0) { S.cards.push(c); i = S.cards.length - 1; }
+    S.card = i; S.skip = S.skip.filter(k => k !== key(c));
+    restoreCard(c); // saved to this phone's cards
+    cardNote = 'Saved as a new card.'; removed = null;
+    const n = app.querySelector('.cardnote'); if (n) n.textContent = cardNote;
+  }
+  save(); // no redraw: a tap on another button must still land
 }
 
 function bindDial() {
@@ -270,7 +291,9 @@ const views = {
     if (ROOM && S.psychic !== ME) return `${topBar()}<div class="grow"></div>
       <div class="stack center"><h2>The psychic is thinking of a clue…</h2></div>${dial({ needle: false })}${cardHTML()}<div class="grow"></div>`;
     return `${topBar()}<p class="muted center">Only you can see this. Think of a clue that sits on the target.</p>
-      ${dial({ target: true, needle: false })}${cardHTML()}
+      ${dial({ target: true, needle: false })}${cardHTML(true)}
+      <p class="muted cardnote" style="font-size:13px;margin-top:-8px">${removed ? `Removed “${esc(removed.card.join(' ↔ '))}”. <button class="link" data-act="undo-remove">Undo</button>`
+        : cardNote ? esc(cardNote) : 'Tap the card to rewrite it, or ✕ to remove it for good.'}</p>
       <div><label for="clue">${ROOM ? 'Your clue' : 'Your clue (optional: you can just say it out loud)'}</label>
         <input type="text" id="clue" maxlength="60" value="${esc(S.clue)}" autocomplete="off"></div>
       <button class="ghost" data-act="new-card">Different card</button>
@@ -352,8 +375,8 @@ const actions = {
     if (navigator.share) navigator.share({ title: 'Tune In', text: `Join my Tune In game: ${ROOM}`, url }).catch(() => {});
     else navigator.clipboard?.writeText(url).then(() => alert('Link copied'));
   },
-  'reveal-target'() { startTurn(S); S.psychic = ME; save(); render(); },
-  'new-card'() { drawCard(S); save(); render(); },
+  'reveal-target'() { removed = null; cardNote = ''; S.draft = null; startTurn(S); S.psychic = ME; save(); render(); },
+  'new-card'() { S.draft = null; removed = null; cardNote = ''; drawCard(S); save(); render(); },
   deck() { deckOpen = true; deckNote = ''; render(); },
   'deck-done'() { deckOpen = false; deckNote = ''; render(); },
   'deck-add'() {
@@ -365,6 +388,17 @@ const actions = {
     else { S.skip = S.skip.filter(x => x !== k); S.deck = S.deck.filter(x => x !== i); S.deck.push(i); }
     deckNote = `Added: ${l} ↔ ${r}. It comes up next.`;
     save(); render(); app.querySelector('#gl').focus();
+  },
+  'remove-card'() {
+    const c = S.cards[S.card];
+    removed = { card: c, i: S.card }; cardNote = '';
+    removeCard(c); if (!S.skip.includes(key(c))) S.skip.push(key(c));
+    S.draft = null; drawCard(S); save(); render();
+  },
+  'undo-remove'() {
+    const { card, i } = removed; removed = null;
+    restoreCard(card); S.skip = S.skip.filter(k => k !== key(card));
+    S.deck.push(S.card); S.card = i; save(); render();
   },
   drop() { const c = S.cards[S.card]; removeCard(c); S.skip.push(key(c)); save(); render(); },
   'to-guess'() { go('guess'); },
@@ -401,6 +435,14 @@ app.addEventListener('click', e => {
 });
 app.addEventListener('input', e => {
   if (e.target.id === 'clue') { S.clue = e.target.value; if (!ROOM) save(); } // online: sent with "Send the clue"
+  if (e.target.classList.contains('cardin')) {
+    S.draft = [app.querySelector('#el').textContent, app.querySelector('#er').textContent];
+    if (ROOM && Date.now() - lastSent > 150) { lastSent = Date.now(); send(); } // others watch it change
+  }
+});
+// finished editing = focus left the card (moving between its two halves doesn't count)
+app.addEventListener('focusout', e => {
+  if (e.target.classList?.contains('cardin') && !e.relatedTarget?.classList?.contains('cardin')) commitDraft();
 });
 app.addEventListener('change', e => { if (e.target.id === 'builtin') { store.set('tunein.builtin', e.target.checked); render(); } });
 app.addEventListener('keydown', e => {
@@ -409,6 +451,8 @@ app.addEventListener('keydown', e => {
   if (e.target.id === 'cl') app.querySelector('#cr').focus();
   if (e.target.id === 'cr') actions['add-card']();
   if (e.target.id === 'gl') app.querySelector('#gr').focus();
+  if (e.target.id === 'el') { e.preventDefault(); app.querySelector('#er').focus(); }
+  if (e.target.id === 'er') { e.preventDefault(); e.target.blur(); }
   if (e.target.id === 'gr') actions['deck-add']();
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) connect(); });

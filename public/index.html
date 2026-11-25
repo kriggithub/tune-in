@@ -71,6 +71,14 @@
     font-weight: 650; font-size: 18px; line-height: 1.2; }
   .card div:last-child { text-align: right; }
   .card small { display: block; color: var(--muted); font-weight: 400; font-size: 13px; }
+  .card.edit { position: relative; }
+  .cardin { display: block; min-height: 1.3em; font: inherit; width: 100%; padding: 2px 0; border: 0; border-bottom: 1px dashed var(--muted); background: none;
+    color: var(--text); outline: none; user-select: text; -webkit-user-select: text; }
+  .card div:last-child .cardin { text-align: right; }
+  .cardin:focus { border-bottom: 1px solid var(--amber); }
+  .card .x { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 30px; height: 30px; min-height: 0;
+    padding: 0; border-radius: 50%; font-size: 14px; background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+  button.link { background: none; color: var(--amber); padding: 0; min-height: 0; font-size: inherit; text-decoration: underline; }
   .clue { font-size: 30px; font-weight: 750; text-align: center; color: var(--amber); word-break: break-word; }
   svg.dial { width: 100%; display: block; touch-action: none; }
   .target { transition: opacity .6s ease .15s; }
