@@ -21,6 +21,13 @@ through a Durable Object per room (`worker.js`, `wrangler.jsonc`). Deploys from
 `main` via Cloudflare Workers Builds (the repo is connected in the Cloudflare
 dashboard), so pushing is deploying.
 
+## Deploy (one time)
+
+Cloudflare dashboard → Workers & Pages → Create → Import a repository →
+`kriggithub/tune-in`. Keep the name `tune-in` (it must match `wrangler.jsonc`), no
+build command, deploy command `npx wrangler deploy`. After that every push to
+`main` deploys.
+
 ## Develop
 
     npx wrangler dev        # http://localhost:8787, online rooms included
