@@ -19,8 +19,8 @@ export function points(target, needle) {
 
 export const sideOf = (target, needle) => (target < needle ? 'left' : target > needle ? 'right' : null);
 
-export function newGame(mode, names, nCards, rand = Math.random) {
-  const s = { mode, phase: 'handoff', nCards, deck: shuffle(nCards, rand), card: null,
+export function newGame(mode, names, cards, rand = Math.random) {
+  const s = { mode, phase: 'handoff', cards, deck: shuffle(cards.length, rand), card: null,
     target: 90, needle: 90, clue: '', call: null, last: null, winner: null };
   if (mode === 'teams') {
     s.teams = [{ name: names[0], score: 0 }, { name: names[1], score: 1 }]; // second team starts on 1
@@ -32,7 +32,7 @@ export function newGame(mode, names, nCards, rand = Math.random) {
 }
 
 export function drawCard(s, rand = Math.random) {
-  if (!s.deck.length) s.deck = shuffle(s.nCards, rand);
+  if (!s.deck.length) s.deck = shuffle(s.cards.length, rand);
   s.card = s.deck.pop();
 }
 

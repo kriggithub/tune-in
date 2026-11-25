@@ -1,11 +1,16 @@
 # tune-in
 
-Pass-the-phone spectrum-guessing party game (own name, cards and look). Static
-PWA on GitHub Pages (branch `main`, root). No backend, no secrets, no build.
+Spectrum-guessing party game (own name, cards and look): pass-the-phone or
+online rooms. Cloudflare Worker serving `public/` + one Durable Object per room.
+Deploys from `main` via Cloudflare Workers Builds. No secrets.
 
-- `logic.js` — all rules (scoring, steals, catch-up, win/sudden death, co-op). Pure; tested by `node test.mjs`.
-- `app.js` — screens + dial. Game state saves to localStorage so a reload resumes mid-round.
-- `cards.js` — the deck. Write original pairs; don't copy another game's card list.
-- `sw.js` — offline cache (stale-while-revalidate: a push shows up on the *second* open). Add new files to its `FILES`.
+- `public/logic.js` — all rules (scoring, steals, catch-up, win/sudden death, co-op). Pure; tested by `node test.mjs`.
+- `public/app.js` — screens, dial, custom cards (localStorage), online sync. The whole game state is one
+  JSON object; online, every change sends the full state and the room relays it (last write wins).
+  `clean()` is the trust boundary for incoming state — keep it when adding fields.
+- `public/cards.js` — built-in deck. Write original pairs; don't copy another game's card list.
+- `public/sw.js` — offline cache (stale-while-revalidate: a push shows up on the *second* open). Add new files to `FILES`.
+- `worker.js` — relay: stores the latest state per room, forwards to others, wipes rooms idle a week.
 
-Rules: run `node test.mjs` after touching `logic.js`. Finished work lands on `main` (Kurt's solo repo).
+Test: `node test.mjs`, and for online changes `npx wrangler dev` + two browser sessions.
+Finished work lands on `main` (Kurt's solo repo) — that deploys it.

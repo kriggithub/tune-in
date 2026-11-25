@@ -1,13 +1,28 @@
 # Tune In
 
-A pass-the-phone party game. One player sees a hidden target on a dial, gives a
-one-word-ish clue for where it sits between two opposites ("Light ↔ Heavy"), and
-their team turns the dial to find it. Two teams (first to 10) or co-op.
+A party game about reading each other's minds. One player sees a hidden target
+on a dial and gives a clue for where it sits between two opposites
+("Light ↔ Heavy"); their team turns the dial to find it. Two teams (first to 10)
+or co-op.
 
-**Play:** open the GitHub Pages link on your phone → Share → **Add to Home
-Screen**. It then opens full-screen and works offline.
+- **On one phone:** pass it around.
+- **Online:** tap *Play online*, share the 4-letter code or link; everyone plays
+  on their own phone or browser and moves sync live.
+- **Your own cards:** *Cards* on the menu. Online, everyone's custom cards are
+  added to the room.
 
-**Run locally:** `python -m http.server` in this folder, open http://localhost:8000.
-**Test the rules:** `node test.mjs`.
+**Install on a phone:** open the site → Share → **Add to Home Screen**.
 
-Plain HTML/JS, no build step, no dependencies.
+## Hosting
+
+One Cloudflare Worker (free plan) serves `public/` and relays online games
+through a Durable Object per room (`worker.js`, `wrangler.jsonc`). Deploys from
+`main` via Cloudflare Workers Builds (the repo is connected in the Cloudflare
+dashboard), so pushing is deploying.
+
+## Develop
+
+    npx wrangler dev        # http://localhost:8787, online rooms included
+    node test.mjs           # scoring rules
+
+Plain HTML/JS, no build step.

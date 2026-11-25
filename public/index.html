@@ -76,6 +76,16 @@
   .big { font-size: 56px; font-weight: 800; text-align: center; line-height: 1; }
   details { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
   summary { font-weight: 650; cursor: pointer; }
+  button:disabled { opacity: .4; }
+  .room { display: flex; align-items: center; gap: 6px; font-weight: 700; letter-spacing: 1px; color: var(--amber); }
+  .room i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .room i.on { background: var(--b4); }
+  .note { padding: 10px 12px; border-radius: 12px; background: var(--amber-dim); }
+  .list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px;
+    border-radius: 12px; background: var(--panel); border: 1px solid var(--line); font-size: 15px; }
+  .check { display: flex; align-items: center; gap: 10px; font-size: 16px; color: var(--text); }
+  .check input { width: 22px; height: 22px; accent-color: var(--amber); }
   details ol { padding-left: 20px; margin: 10px 0 0; color: var(--muted); }
   details li { margin-bottom: 6px; }
 </style>

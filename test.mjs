@@ -1,6 +1,6 @@
 // node test.mjs — checks the scoring rules
 import assert from 'node:assert/strict';
-import { BAND, points, sideOf, newGame, resolve, startTurn } from './logic.js';
+import { BAND, points, sideOf, newGame, resolve, startTurn } from './public/logic.js';
 
 assert.equal(points(90, 90), 4);
 assert.equal(points(90, 90 + BAND / 2), 4);
@@ -10,7 +10,8 @@ assert.equal(points(90, 90 + 2.6 * BAND), 0);
 assert.equal(sideOf(40, 90), 'left');
 assert.equal(sideOf(140, 90), 'right');
 
-const game = () => { const s = newGame('teams', ['A', 'B'], 10); startTurn(s); return s; };
+const CARDS = Array.from({ length: 10 }, (_, i) => ['l' + i, 'r' + i]);
+const game = () => { const s = newGame('teams', ['A', 'B'], CARDS); startTurn(s); return s; };
 
 // second team starts on 1
 assert.deepEqual(game().teams.map(t => t.score), [0, 1]);
@@ -38,7 +39,7 @@ s = game(); s.teams[0].score = 8; s.teams[1].score = 9; s.target = 100; s.needle
 r = resolve(s); assert.equal(s.winner, null); assert.equal(r.suddenDeath, true);
 
 // co-op: bullseye gives the card back, game ends when cards run out
-s = newGame('coop', [], 10); startTurn(s); s.target = 90; s.needle = 90; resolve(s);
+s = newGame('coop', [], CARDS); startTurn(s); s.target = 90; s.needle = 90; resolve(s);
 assert.equal(s.cardsLeft, 7); assert.equal(s.score, 4);
 s.cardsLeft = 1; startTurn(s); s.target = 20; s.needle = 160; resolve(s);
 assert.equal(s.winner, 'coop');
