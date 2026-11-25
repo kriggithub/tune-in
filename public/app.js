@@ -181,7 +181,7 @@ function moveNeedle(v) {
 function cardHTML(editable = false) {
   const [l, r] = S.draft || S.cards[S.card];
   if (!editable) return `<div class="card"><div><small>◀ left</small>${esc(l)}</div><div><small>right ▶</small>${esc(r)}</div></div>`;
-  const field = (id, t, label) => `<span class="cardin" id="${id}" contenteditable="plaintext-only" role="textbox" aria-label="${label}" spellcheck="false">${esc(t)}</span>`;
+  const field = (id, t, label) => `<span class="cardin" id="${id}" contenteditable="plaintext-only" role="textbox" aria-label="${label}" data-ph="${label}" spellcheck="false">${esc(t)}</span>`;
   return `<div class="card edit"><button class="x" data-act="remove-card" aria-label="Remove this card for good">✕</button>
     <div><small>◀ left</small>${field('el', l, 'Left end')}</div><div><small>right ▶</small>${field('er', r, 'Right end')}</div></div>`;
 }
@@ -327,10 +327,10 @@ const views = {
     return `${topBar()}<p class="muted center">Only you can see this. Think of a clue that sits on the target.</p>
       ${dial({ target: true, needle: false })}${cardHTML(true)}
       <p class="muted cardnote" style="font-size:13px;margin-top:-8px">${removed ? `Removed “${esc(removed.card.join(' ↔ '))}”. <button class="link" data-act="undo-remove">Undo</button>`
-        : cardNote ? esc(cardNote) : `Tap the card to rewrite it, or ✕ to remove it from the ${esc(S.deckName)} deck.`}</p>
+        : cardNote ? esc(cardNote) : `Tap the card to rewrite it, ✕ to remove it, or ＋ New card to write your own. Changes save to the ${esc(S.deckName)} deck.`}</p>
       <div><label for="clue">Your clue (optional: you can just say it out loud${ROOM ? ', e.g. on a call' : ''})</label>
         <input type="text" id="clue" maxlength="60" value="${esc(S.clue)}" autocomplete="off"></div>
-      <button class="ghost" data-act="new-card">Different card</button>
+      <div class="row"><button class="ghost" data-act="new-card">Different card</button><button class="ghost" data-act="write-card">＋ New card</button></div>
       <div class="grow"></div>
       <button data-act="to-guess" id="go">${goLabel()}</button>`;
   },
@@ -429,6 +429,9 @@ const actions = {
     else navigator.clipboard?.writeText(url).then(() => alert('Link copied'));
   },
   'reveal-target'() { removed = null; cardNote = ''; S.draft = null; startTurn(S); S.psychic = ME; save(); render(); },
+  'write-card'() { // blank card to type into; saved like a rewrite when you finish
+    S.draft = ['', '']; removed = null; cardNote = ''; render(); app.querySelector('#el').focus();
+  },
   'new-card'() { S.draft = null; removed = null; cardNote = ''; drawCard(S); save(); render(); },
   deck() { deckOpen = true; deckNote = ''; render(); },
   'deck-done'() { deckOpen = false; deckNote = ''; render(); },
